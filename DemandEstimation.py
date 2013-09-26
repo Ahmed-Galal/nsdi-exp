@@ -24,7 +24,7 @@ def demand_estimation(flows, hostsList):
        for i in hostsList:
            for j in hostsList:
                if M[i][j]['demandInit'] != M[i][j]['demand']:
-                   NoChange = True
+                   demandChange = True
                    M[i][j]['demandInit'] = M[i][j]['demand']
        
     print"********************estimated demands*********************\n", demandsPrinting(M,hostsList)           

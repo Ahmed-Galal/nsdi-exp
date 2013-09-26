@@ -266,7 +266,7 @@ class HController(EventMixin):
         for flow in estFlows:
             demand = flow['demand']
             if demand >= 0.1:
-                self._GlobalFirstFit(flow)
+                self._GlobalBestFit(flow)
 
 
     def _GlobalFirstFit(self,flow):
@@ -300,20 +300,58 @@ class HController(EventMixin):
                 break
         if GFF_route != None:
             """install new GFF_path between source and destintaion"""
-            self. _install_GFF_path(GFF_route,flow['match'])     
+            self._install_customized_path(GFF_route,flow['match'])
+
+    def _GlobalBestFit(self,flow):
+        '''do the Hedera global best fit here'''
+        src_name = self.t.node_gen(dpid = flow['src']).name_str()
+        dst_name = self.t.node_gen(dpid = flow['dst']).name_str()
+        print 'Global Best Fit for the elephant flow from ',src_name,'to', dst_name
+        paths = self.r.routes(src_name,dst_name)
+        print 'all routes found for the big flow:\n',paths
+        GBF_route = None
+        deviation = 1.0;
+        for path in paths:
+            fitCheck = True
+            residualCapacity = 1.0;
+            for i in range(1,len(path)):
+                fitCheck = False
+                if self.bwReservation.has_key(path[i-1]) and self.bwReservation[path[i-1]].has_key(path[i]):
+                    if self.bwReservation[path[i-1]][path[i]]['reserveDemand'] + flow['demand'] > 1 :
+                        break
+                    else:
+                        #self.bwReservation[path[i-1]][path[i]]['reserveDemand'] += flow['demand']
+                        fitCheck = True
+                        if 1 - self.bwReservation[path[i-1]][path[i]]['reserveDemand'] - flow['demand'] < residualCapacity:
+                            residualCapacity = 1 - self.bwReservation[path[i-1]][path[i]]['reserveDemand'] - flow['demand']
+                else:
+                    if (not self.bwReservation.has_key(path[i-1])):
+                        self.bwReservation[path[i-1]]={}
+                    self.bwReservation[path[i-1]][path[i]]={'reserveDemand':0}
+                    fitCheck = True
+            if fitCheck == True:
+                if residualCapacity < deviation:
+                    GBF_route = path
+                    deviation = residualCapacity
+        if GBF_route != None:
+            for i in range(1,len(GBF_route)):
+                self.bwReservation[GBF_route[i-1]][GBF_route[i]]['reserveDemand'] += flow['demand']
+            print "GBF route found:", GBF_route
+            """install new GBF_path between source and destintaion"""
+            self._install_customized_path(GBF_route,flow['match'])
 
 
-    def _install_GFF_path(self,GFF_route, match):
-        '''installing the global first fit path here'''
+    def _install_customized_path(self,customized_route, match):
+        '''installing customized path here'''
         flow_match = match
         _route, match = self.matchDict[match.nw_src, match.nw_dst, match.tp_src, match.tp_dst]
-        if _route != GFF_route[1:-1] and not self.statMonitorLock.locked():
+        if _route != customized_route[1:-1] and not self.statMonitorLock.locked():
             print "old route", _route
             print "match info:", match.nw_src, match.nw_dst, match.tp_src, match.tp_dst
             self.statMonitorLock.acquire()
             ''' Install entries on route between two switches. '''
-            route = GFF_route[1:-1]
-            print"GFF route to be installed between switches:", route
+            route = customized_route[1:-1]
+            print"customized route to be installed between switches:", route
 
             for i, node in enumerate(route):
                 node_dpid = self.t.node_gen(name = node).dpid
@@ -329,7 +367,6 @@ class HController(EventMixin):
             self.statMonitorLock.release()    
             self.matchDict[flow_match.nw_src, flow_match.nw_dst, flow_match.tp_src, flow_match.tp_dst] = (route, match)
         print '_'*20
-   
 
 
 def launch(topo = None, routing = None, bw = None ):
